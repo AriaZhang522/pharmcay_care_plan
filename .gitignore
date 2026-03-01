@@ -1,0 +1,54 @@
+# ============ 依赖 / Dependencies ============
+node_modules/
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+.venv/
+env/
+.env.local
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# ============ 环境与密钥 / Env & Secrets ============
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# ============ 系统与编辑器 / OS & IDE ============
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+*.sublime-*
+
+# ============ 日志与临时文件 / Logs & Temp ============
+*.log
+logs/
+tmp/
+temp/
+.cache/
+
+# ============ 构建与测试输出 / Build & Test ============
+coverage/
+.nyc_output/
+*.lcov
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+*.egg
+
+# ============ 其他 / Others ============
+*.bak
+*.tmp

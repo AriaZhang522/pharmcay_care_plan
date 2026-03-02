@@ -85,7 +85,7 @@ Order { id, patient_id, provider_id, medication_name, primary_dx, additional_dx[
 CarePlan { id, order_id, content_json, pdf_path, created_at }
 ```
 
----
+
 
 ## 5. 重复检测规则
 

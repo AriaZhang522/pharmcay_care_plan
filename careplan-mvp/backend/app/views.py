@@ -85,6 +85,7 @@ def generate_care_plan(request):
         "patient_first_name": body.get("patient_first_name", ""),
         "patient_last_name": body.get("patient_last_name", ""),
         "patient_mrn": body.get("patient_mrn", ""),
+        "patient_dob": body.get("patient_dob", ""),
         # Provider
         "referring_provider": body.get("referring_provider", ""),
         "referring_provider_npi": body.get("referring_provider_npi", ""),

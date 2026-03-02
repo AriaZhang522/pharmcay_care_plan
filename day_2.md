@@ -24,3 +24,6 @@ name: pharmacy_career_plan
 
 
 github can detect the real API key in order to avoid revealing
+
+if I change frontend and backend code, i need to rebuild and restart docker to make the new code work.
+terminal command line is : `cd /Users/zhangyuyan/Desktop/pharmacy_career_plan/careplan-mvp && docker compose build frontend && docker compose up -d frontend`

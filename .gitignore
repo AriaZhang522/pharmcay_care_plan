@@ -50,5 +50,6 @@ htmlcov/
 *.egg
 
 # ============ 其他 / Others ============
+*.tar.gz
 *.bak
 *.tmp

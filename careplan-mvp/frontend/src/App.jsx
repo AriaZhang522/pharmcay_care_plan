@@ -241,10 +241,10 @@ function TagInput({ values, onChange, placeholder }) {
 // ─────────────────────────────────────────────
 function CarePlanView({ carePlan, orderInfo }) {
   const sections = [
-    { key: "problem_list", label: "📋 Problem List", icon: "📋" },
-    { key: "goals", label: "🎯 Goals", icon: "🎯" },
-    { key: "pharmacist_interventions", label: "💊 Pharmacist Interventions", icon: "💊" },
-    { key: "monitoring_plan", label: "📊 Monitoring Plan", icon: "📊" },
+    { key: "problem_list", label: "Problem List", icon: "📋" },
+    { key: "goals", label: "Goals", icon: "🎯" },
+    { key: "pharmacist_interventions", label: "Pharmacist Interventions", icon: "💊" },
+    { key: "monitoring_plan", label: "Monitoring Plan", icon: "📊" },
   ];
 
   function downloadTxt() {
@@ -299,6 +299,7 @@ const EMPTY_FORM = {
   patient_first_name: "",
   patient_last_name: "",
   patient_mrn: "",
+  patient_dob: "",
   referring_provider: "",
   referring_provider_npi: "",
   primary_diagnosis: "",
@@ -313,6 +314,7 @@ const SAMPLE_FORM = {
   patient_first_name: "Jane",
   patient_last_name: "Smith",
   patient_mrn: "001234",
+  patient_dob: "1990-01-15",
   referring_provider: "Dr. Michael Chen",
   referring_provider_npi: "1234567890",
   primary_diagnosis: "G70.01",
@@ -346,7 +348,7 @@ export default function App() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Unknown error");
-      setResult({ care_plan: data.care_plan, orderInfo: form });
+      setResult({ care_plan: data.care_plan, order_id: data.order_id, orderInfo: form });
     } catch (e) {
       setError(e.message);
     } finally {
@@ -397,10 +399,17 @@ export default function App() {
               />
             </div>
             <input
-              style={{ ...S.input, marginBottom: 0 }}
+              style={S.input}
               placeholder="MRN (6-digit ID)"
               value={form.patient_mrn}
               onChange={(e) => set("patient_mrn", e.target.value)}
+            />
+            <input
+              style={{ ...S.input, marginBottom: 0 }}
+              type="date"
+              placeholder="Date of Birth"
+              value={form.patient_dob}
+              onChange={(e) => set("patient_dob", e.target.value)}
             />
           </div>
 
@@ -517,10 +526,17 @@ export default function App() {
           )}
 
           {!loading && result && (
-            <CarePlanView
-              carePlan={result.care_plan}
-              orderInfo={result.orderInfo}
-            />
+            <>
+              {result.order_id && (
+                <p style={{ fontSize: 13, color: "#666", marginBottom: 10 }}>
+                  Order ID: <code style={{ background: "#f0f0f0", padding: "2px 6px", borderRadius: 4 }}>{result.order_id}</code>
+                </p>
+              )}
+              <CarePlanView
+                carePlan={result.care_plan}
+                orderInfo={result.orderInfo}
+              />
+            </>
           )}
         </div>
       </div>

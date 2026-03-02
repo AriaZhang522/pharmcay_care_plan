@@ -71,6 +71,7 @@ Respond ONLY with a valid JSON object, no markdown, no extra text.
 @csrf_exempt
 @require_http_methods(["POST"])
 def generate_care_plan(request):
+    # pdb.set_trace()
     try:
         body = json.loads(request.body)
     except json.JSONDecodeError:
@@ -85,6 +86,7 @@ def generate_care_plan(request):
         "patient_first_name": body.get("patient_first_name", ""),
         "patient_last_name": body.get("patient_last_name", ""),
         "patient_mrn": body.get("patient_mrn", ""),
+        "patient_dob": body.get("patient_dob", ""),
         # Provider
         "referring_provider": body.get("referring_provider", ""),
         "referring_provider_npi": body.get("referring_provider_npi", ""),
@@ -132,3 +134,14 @@ def list_orders(request):
     # Most recent first
     orders_list.sort(key=lambda x: x["created_at"], reverse=True)
     return JsonResponse({"orders": orders_list})
+
+# ─────────────────────────────────────────────
+# GET /api/orders/<order_id>/
+# Returns full order (incl. care_plan) for the given order_id, or 404.
+# ─────────────────────────────────────────────
+@require_http_methods(["GET"])
+def get_order(request, order_id):
+    if order_id not in ORDERS:
+        return JsonResponse({"error": "Order not found"}, status=404)
+    return JsonResponse(ORDERS[order_id])
+

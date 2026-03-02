@@ -348,7 +348,7 @@ export default function App() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Unknown error");
-      setResult({ care_plan: data.care_plan, orderInfo: form });
+      setResult({ care_plan: data.care_plan, order_id: data.order_id, orderInfo: form });
     } catch (e) {
       setError(e.message);
     } finally {
@@ -526,10 +526,17 @@ export default function App() {
           )}
 
           {!loading && result && (
-            <CarePlanView
-              carePlan={result.care_plan}
-              orderInfo={result.orderInfo}
-            />
+            <>
+              {result.order_id && (
+                <p style={{ fontSize: 13, color: "#666", marginBottom: 10 }}>
+                  Order ID: <code style={{ background: "#f0f0f0", padding: "2px 6px", borderRadius: 4 }}>{result.order_id}</code>
+                </p>
+              )}
+              <CarePlanView
+                carePlan={result.care_plan}
+                orderInfo={result.orderInfo}
+              />
+            </>
           )}
         </div>
       </div>

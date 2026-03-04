@@ -1,6 +1,5 @@
 import json
-import uuid
-from datetime import datetime
+from datetime import date
 
 import anthropic
 from django.conf import settings
@@ -8,32 +7,27 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-# ─────────────────────────────────────────────
-# In-memory "database" — just a Python dict
-# Resets every time the server restarts.
-# ─────────────────────────────────────────────
-ORDERS = {}  # { order_id: { ...order data + care_plan } }
+from .models import CarePlan, Order, Patient, ReferringProvider
 
 
 # ─────────────────────────────────────────────
-# Helper: call Claude to generate care plan
+# Helper: call Claude to generate care plan (same prompt shape as before)
 # ─────────────────────────────────────────────
-def call_llm_for_care_plan(order: dict) -> dict:
+def call_llm_for_care_plan(order_dict: dict) -> dict:
     client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
-
     prompt = f"""You are a clinical pharmacist at a specialty pharmacy generating a Medicare-compliant care plan.
 
 Patient Information:
-- Name: {order["patient_first_name"]} {order["patient_last_name"]}
-- MRN: {order["patient_mrn"]}
-- Primary Diagnosis (ICD-10): {order["primary_diagnosis"]}
-- Additional Diagnoses: {", ".join(order["additional_diagnoses"]) if order["additional_diagnoses"] else "None"}
-- Medication: {order["medication_name"]}
-- Medication History: {"; ".join(order["medication_history"]) if order["medication_history"] else "None"}
-- Referring Provider: {order["referring_provider"]} (NPI: {order["referring_provider_npi"]})
+- Name: {order_dict["patient_first_name"]} {order_dict["patient_last_name"]}
+- MRN: {order_dict["patient_mrn"]}
+- Primary Diagnosis (ICD-10): {order_dict["primary_diagnosis"]}
+- Additional Diagnoses: {", ".join(order_dict["additional_diagnoses"]) if order_dict["additional_diagnoses"] else "None"}
+- Medication: {order_dict["medication_name"]}
+- Medication History: {"; ".join(order_dict["medication_history"]) if order_dict["medication_history"] else "None"}
+- Referring Provider: {order_dict["referring_provider"]} (NPI: {order_dict["referring_provider_npi"]})
 
 Patient Records / Clinical Notes:
-{order["patient_records"]}
+{order_dict["patient_records"]}
 
 Generate a structured care plan with exactly these four sections.
 Respond ONLY with a valid JSON object, no markdown, no extra text.
@@ -45,95 +39,172 @@ Respond ONLY with a valid JSON object, no markdown, no extra text.
   "monitoring_plan": ["monitoring item 1", "monitoring item 2", "..."]
 }}
 """
-
     message = client.messages.create(
         model="claude-opus-4-5",
         max_tokens=1500,
         messages=[{"role": "user", "content": prompt}],
     )
-
     raw = message.content[0].text.strip()
-
-    # Strip markdown fences if the model wraps in ```json
     if raw.startswith("```"):
         raw = raw.split("```")[1]
         if raw.startswith("json"):
             raw = raw[4:]
         raw = raw.strip()
-
     return json.loads(raw)
+
+
+def _order_to_response_dict(order: Order) -> dict:
+    """Serialize Order + CarePlan to the same JSON shape the frontend expects."""
+    cp = getattr(order, "care_plan", None)
+    care_plan = None
+    if cp and cp.status == CarePlan.Status.COMPLETED:
+        care_plan = {
+            "problem_list": cp.problem_list or [],
+            "goals": cp.goals or [],
+            "pharmacist_interventions": cp.pharmacist_interventions or [],
+            "monitoring_plan": cp.monitoring_plan or [],
+        }
+    return {
+        "order_id": str(order.uuid),
+        "created_at": order.created_at.isoformat(),
+        "patient_first_name": order.patient.first_name,
+        "patient_last_name": order.patient.last_name,
+        "patient_mrn": order.patient.mrn,
+        "patient_dob": order.patient.dob.isoformat() if order.patient.dob else "",
+        "referring_provider": order.referring_provider.name,
+        "referring_provider_npi": order.referring_provider.npi,
+        "primary_diagnosis": order.primary_diagnosis,
+        "additional_diagnoses": order.additional_diagnoses,
+        "medication_name": order.medication_name,
+        "medication_history": order.medication_history,
+        "patient_records": order.patient_records,
+        "care_plan": care_plan,
+    }
 
 
 # ─────────────────────────────────────────────
 # POST /api/generate-care-plan/
-# Accepts form data, calls LLM, stores in memory, returns care plan
+# Creates Patient/Provider/Order/CarePlan, calls LLM, status: pending → processing → completed/failed
 # ─────────────────────────────────────────────
 @csrf_exempt
 @require_http_methods(["POST"])
 def generate_care_plan(request):
-    # pdb.set_trace()
     try:
         body = json.loads(request.body)
     except json.JSONDecodeError:
         return JsonResponse({"error": "Invalid JSON"}, status=400)
 
-    # Build order record
-    order_id = str(uuid.uuid4())
-    order = {
-        "order_id": order_id,
-        "created_at": datetime.utcnow().isoformat(),
-        # Patient
-        "patient_first_name": body.get("patient_first_name", ""),
-        "patient_last_name": body.get("patient_last_name", ""),
-        "patient_mrn": body.get("patient_mrn", ""),
-        "patient_dob": body.get("patient_dob", ""),
-        # Provider
-        "referring_provider": body.get("referring_provider", ""),
-        "referring_provider_npi": body.get("referring_provider_npi", ""),
-        # Clinical
-        "primary_diagnosis": body.get("primary_diagnosis", ""),
-        "additional_diagnoses": body.get("additional_diagnoses", []),
-        "medication_name": body.get("medication_name", ""),
-        "medication_history": body.get("medication_history", []),
-        "patient_records": body.get("patient_records", ""),
-        # Care plan — filled in below
-        "care_plan": None,
+    mrn = (body.get("patient_mrn") or "").strip()
+    npi = (body.get("referring_provider_npi") or "").strip()
+    if not mrn or not npi:
+        return JsonResponse(
+            {"error": "patient_mrn and referring_provider_npi are required"},
+            status=400,
+        )
+
+    dob = body.get("patient_dob")
+    if dob:
+        try:
+            dob = date.fromisoformat(dob) if isinstance(dob, str) else dob
+        except (TypeError, ValueError):
+            dob = None
+
+    patient, _ = Patient.objects.get_or_create(
+        mrn=mrn,
+        defaults={
+            "first_name": body.get("patient_first_name", ""),
+            "last_name": body.get("patient_last_name", ""),
+            "dob": dob,
+        },
+    )
+    provider, _ = ReferringProvider.objects.get_or_create(
+        npi=npi,
+        defaults={"name": body.get("referring_provider", "")},
+    )
+
+    order = Order.objects.create(
+        patient=patient,
+        referring_provider=provider,
+        primary_diagnosis=body.get("primary_diagnosis", ""),
+        additional_diagnoses=body.get("additional_diagnoses", []) or [],
+        medication_name=body.get("medication_name", ""),
+        medication_history=body.get("medication_history", []) or [],
+        patient_records=body.get("patient_records", ""),
+    )
+    care_plan_obj = CarePlan.objects.create(order=order, status=CarePlan.Status.PENDING)
+
+    # Build dict for LLM (same shape as before)
+    order_dict = {
+        "patient_first_name": patient.first_name,
+        "patient_last_name": patient.last_name,
+        "patient_mrn": patient.mrn,
+        "primary_diagnosis": order.primary_diagnosis,
+        "additional_diagnoses": order.additional_diagnoses,
+        "medication_name": order.medication_name,
+        "medication_history": order.medication_history,
+        "referring_provider": provider.name,
+        "referring_provider_npi": provider.npi,
+        "patient_records": order.patient_records,
     }
 
-    # Call LLM synchronously — user waits
+    care_plan_obj.status = CarePlan.Status.PROCESSING
+    care_plan_obj.save(update_fields=["status", "updated_at"])
+
     try:
-        care_plan = call_llm_for_care_plan(order)
-        order["care_plan"] = care_plan
+        result = call_llm_for_care_plan(order_dict)
+        care_plan_obj.problem_list = result.get("problem_list", [])
+        care_plan_obj.goals = result.get("goals", [])
+        care_plan_obj.pharmacist_interventions = result.get(
+            "pharmacist_interventions", []
+        )
+        care_plan_obj.monitoring_plan = result.get("monitoring_plan", [])
+        care_plan_obj.status = CarePlan.Status.COMPLETED
+        care_plan_obj.save(
+            update_fields=[
+                "problem_list",
+                "goals",
+                "pharmacist_interventions",
+                "monitoring_plan",
+                "status",
+                "updated_at",
+            ]
+        )
+        care_plan_response = {
+            "problem_list": care_plan_obj.problem_list,
+            "goals": care_plan_obj.goals,
+            "pharmacist_interventions": care_plan_obj.pharmacist_interventions,
+            "monitoring_plan": care_plan_obj.monitoring_plan,
+        }
+        return JsonResponse(
+            {"order_id": str(order.uuid), "care_plan": care_plan_response}
+        )
     except Exception as e:
-        return JsonResponse({"error": f"LLM generation failed: {str(e)}"}, status=500)
-
-    # Store in memory
-    ORDERS[order_id] = order
-
-    return JsonResponse({
-        "order_id": order_id,
-        "care_plan": care_plan,
-    })
+        care_plan_obj.status = CarePlan.Status.FAILED
+        care_plan_obj.error_message = str(e)
+        care_plan_obj.save(update_fields=["status", "error_message", "updated_at"])
+        return JsonResponse(
+            {"error": f"LLM generation failed: {str(e)}"}, status=500
+        )
 
 
 # ─────────────────────────────────────────────
 # GET /api/orders/
-# Returns all orders stored in memory (for the history panel)
+# Returns list of orders (for history panel)
 # ─────────────────────────────────────────────
 @require_http_methods(["GET"])
 def list_orders(request):
+    orders = Order.objects.select_related("patient").order_by("-created_at")
     orders_list = [
         {
-            "order_id": o["order_id"],
-            "created_at": o["created_at"],
-            "patient_name": f"{o['patient_first_name']} {o['patient_last_name']}",
-            "medication_name": o["medication_name"],
+            "order_id": str(o.uuid),
+            "created_at": o.created_at.isoformat(),
+            "patient_name": f"{o.patient.first_name} {o.patient.last_name}",
+            "medication_name": o.medication_name,
         }
-        for o in ORDERS.values()
+        for o in orders
     ]
-    # Most recent first
-    orders_list.sort(key=lambda x: x["created_at"], reverse=True)
     return JsonResponse({"orders": orders_list})
+
 
 # ─────────────────────────────────────────────
 # GET /api/orders/<order_id>/
@@ -141,7 +212,11 @@ def list_orders(request):
 # ─────────────────────────────────────────────
 @require_http_methods(["GET"])
 def get_order(request, order_id):
-    if order_id not in ORDERS:
+    order = (
+        Order.objects.filter(uuid=order_id)
+        .select_related("patient", "referring_provider", "care_plan")
+        .first()
+    )
+    if not order:
         return JsonResponse({"error": "Order not found"}, status=404)
-    return JsonResponse(ORDERS[order_id])
-
+    return JsonResponse(_order_to_response_dict(order))

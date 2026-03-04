@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 // ─────────────────────────────────────────────
 // Styles — inline so there's zero config needed
@@ -195,6 +195,23 @@ const S = {
     color: "#9ca3af",
     fontSize: 15,
   },
+  orderList: { marginBottom: 24 },
+  orderItem: {
+    display: "block",
+    width: "100%",
+    padding: "12px 14px",
+    marginBottom: 8,
+    textAlign: "left",
+    background: "#f8fafc",
+    border: "1px solid #e2e8f0",
+    borderRadius: 8,
+    cursor: "pointer",
+    fontSize: 14,
+    color: "#1e293b",
+    transition: "background 0.15s, border-color 0.15s",
+  },
+  orderItemHover: { background: "#f1f5f9", borderColor: "#cbd5e1" },
+  orderItemMeta: { fontSize: 12, color: "#64748b", marginTop: 4 },
 };
 
 // ─────────────────────────────────────────────
@@ -329,10 +346,50 @@ export default function App() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [result, setResult] = useState(null); // { care_plan, order_id }
+  const [result, setResult] = useState(null); // { care_plan, order_id, orderInfo }
+  const [orderList, setOrderList] = useState([]); // [{ order_id, created_at, patient_name, medication_name }]
+  const [ordersLoading, setOrdersLoading] = useState(true);
+  const [ordersError, setOrdersError] = useState(null);
+
+  function fetchOrders() {
+    setOrdersError(null);
+    setOrdersLoading(true);
+    fetch("/api/orders/")
+      .then((r) => r.json())
+      .then((data) => {
+        setOrderList(data.orders || []);
+        setOrdersError(null);
+      })
+      .catch((err) => {
+        setOrderList([]);
+        setOrdersError("Could not load orders. Is the backend running?");
+      })
+      .finally(() => setOrdersLoading(false));
+  }
+
+  useEffect(() => {
+    fetchOrders();
+  }, []);
 
   function set(field, value) {
     setForm((f) => ({ ...f, [field]: value }));
+  }
+
+  async function loadOrder(orderId) {
+    setError(null);
+    try {
+      const res = await fetch(`/api/orders/${orderId}/`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to load order");
+      setResult({
+        order_id: data.order_id,
+        care_plan: data.care_plan,
+        orderInfo: data,
+      });
+    } catch (e) {
+      setError(e.message);
+      setResult(null);
+    }
   }
 
   async function handleSubmit() {
@@ -349,6 +406,10 @@ export default function App() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Unknown error");
       setResult({ care_plan: data.care_plan, order_id: data.order_id, orderInfo: form });
+      setOrderList((prev) => [
+        { order_id: data.order_id, created_at: new Date().toISOString(), patient_name: `${form.patient_first_name} ${form.patient_last_name}`, medication_name: form.medication_name },
+        ...prev,
+      ]);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -377,8 +438,44 @@ export default function App() {
       </div>
 
       <div style={S.layout}>
-        {/* ── LEFT: Input Form ── */}
+        {/* ── LEFT: Existing Orders + Input Form ── */}
         <div style={S.card}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+            <p style={{ ...S.cardTitle, margin: 0 }}>Existing Orders</p>
+            <button
+              type="button"
+              style={{ ...S.addBtn, padding: "6px 12px" }}
+              onClick={fetchOrders}
+              disabled={ordersLoading}
+            >
+              {ordersLoading ? "Loading…" : "↻ Refresh"}
+            </button>
+          </div>
+          <div style={S.orderList}>
+            {ordersError && (
+              <p style={{ margin: "0 0 8px", fontSize: 13, color: "#dc2626" }}>{ordersError}</p>
+            )}
+            {!ordersLoading && orderList.length === 0 && !ordersError && (
+              <p style={{ margin: 0, fontSize: 14, color: "#94a3b8" }}>No orders yet. Create one below.</p>
+            )}
+            {!ordersLoading && orderList.map((o) => (
+              <button
+                key={o.order_id}
+                type="button"
+                style={{
+                  ...S.orderItem,
+                  ...(result?.order_id === o.order_id ? S.orderItemHover : {}),
+                }}
+                onClick={() => loadOrder(o.order_id)}
+              >
+                <strong>{o.patient_name}</strong> · {o.medication_name || "—"}
+                <div style={S.orderItemMeta}>
+                  {o.created_at ? new Date(o.created_at).toLocaleString() : ""} · ID: {o.order_id.slice(0, 8)}…
+                </div>
+              </button>
+            ))}
+          </div>
+
           <p style={S.cardTitle}>New Care Plan Order</p>
 
           {/* Patient */}
@@ -532,10 +629,16 @@ export default function App() {
                   Order ID: <code style={{ background: "#f0f0f0", padding: "2px 6px", borderRadius: 4 }}>{result.order_id}</code>
                 </p>
               )}
-              <CarePlanView
-                carePlan={result.care_plan}
-                orderInfo={result.orderInfo}
-              />
+              {result.care_plan ? (
+                <CarePlanView
+                  carePlan={result.care_plan}
+                  orderInfo={result.orderInfo}
+                />
+              ) : (
+                <div style={S.emptyState}>
+                  Care plan not available (pending, processing, or failed for this order).
+                </div>
+              )}
             </>
           )}
         </div>

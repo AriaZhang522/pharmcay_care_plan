@@ -1,0 +1,41 @@
+[
+  {
+    "patient_first_name": "Maria",
+    "patient_last_name": "Garcia",
+    "patient_mrn": "MRN-2024-001",
+    "patient_dob": "1958-03-15",
+    "referring_provider": "Dr. James Chen",
+    "referring_provider_npi": "1234567890",
+    "primary_diagnosis": "I10",
+    "additional_diagnoses": ["E11.9", "E78.00"],
+    "medication_name": "Lisinopril 10 mg daily",
+    "medication_history": ["Amlodipine 5mg (discontinued due to edema)", "Metformin 500mg BID"],
+    "patient_records": "68 y/o F with HTN, Type 2 DM, hyperlipidemia. BP today 148/92. Last A1c 7.2%. Patient reports occasional dizziness on standing. Adherence to current meds is good. Needs comprehensive medication review and BP/glucose monitoring plan."
+  },
+  {
+    "patient_first_name": "Robert",
+    "patient_last_name": "Kim",
+    "patient_mrn": "MRN-2024-002",
+    "patient_dob": "1972-08-22",
+    "referring_provider": "Dr. Sarah Williams",
+    "referring_provider_npi": "1987654321",
+    "primary_diagnosis": "M06.9",
+    "additional_diagnoses": ["M17.11", "K21.0"],
+    "medication_name": "Adalimumab 40 mg every 2 weeks",
+    "medication_history": ["Methotrexate 15mg weekly (stopped 6 months ago)", "Omeprazole 20mg daily", "Folic acid 1mg daily"],
+    "patient_records": "52 y/o M with rheumatoid arthritis, knee OA, GERD. Starting adalimumab per rheumatology. Screen for TB and hepatitis B completed; negative. Patient educated on infection risk and need for routine labs. Request pharmacist care plan for monitoring and adherence."
+  },
+  {
+    "patient_first_name": "Patricia",
+    "patient_last_name": "Johnson",
+    "patient_mrn": "MRN-2024-003",
+    "patient_dob": "1965-11-08",
+    "referring_provider": "Dr. David Park",
+    "referring_provider_npi": "1122334455",
+    "primary_diagnosis": "G20",
+    "additional_diagnoses": ["F32.1", "G47.33"],
+    "medication_name": "Carbidopa-Levodopa 25-100 mg TID",
+    "medication_history": ["Pramipexole 0.25mg TID (recently switched)", "Sertraline 50mg daily", "Melatonin 3mg at bedtime"],
+    "patient_records": "59 y/o F with Parkinson disease, depression, insomnia. Recently switched from pramipexole to carbidopa-levodopa due to impulse control concerns. Off periods and dyskinesia reported. Request care plan focusing on dosing timing, fall risk, and drug-disease interactions."
+  }
+]

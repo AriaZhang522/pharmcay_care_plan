@@ -405,7 +405,12 @@ export default function App() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Unknown error");
-      setResult({ care_plan: data.care_plan, order_id: data.order_id, orderInfo: form });
+      setResult({
+        order_id: data.order_id,
+        care_plan: data.care_plan ?? null,
+        orderInfo: form,
+        message: data.message,
+      });
       setOrderList((prev) => [
         { order_id: data.order_id, created_at: new Date().toISOString(), patient_name: `${form.patient_first_name} ${form.patient_last_name}`, medication_name: form.medication_name },
         ...prev,
@@ -597,7 +602,7 @@ export default function App() {
             onClick={handleSubmit}
             disabled={!isReady || loading}
           >
-            {loading ? "Generating Care Plan..." : "Generate Care Plan →"}
+            {loading ? "Submitting..." : "Generate Care Plan →"}
           </button>
         </div>
 
@@ -608,10 +613,7 @@ export default function App() {
           {loading && (
             <div style={S.loading}>
               <div style={S.spinner} />
-              <p style={{ margin: 0 }}>Calling Claude AI...</p>
-              <p style={{ margin: "6px 0 0", fontSize: 13, color: "#aaa" }}>
-                Usually takes 10–20 seconds
-              </p>
+              <p style={{ margin: 0 }}>Submitting...</p>
             </div>
           )}
 
@@ -624,6 +626,11 @@ export default function App() {
 
           {!loading && result && (
             <>
+              {result.message && (
+                <p style={{ fontSize: 14, color: "#059669", marginBottom: 8, fontWeight: 600 }}>
+                  {result.message}
+                </p>
+              )}
               {result.order_id && (
                 <p style={{ fontSize: 13, color: "#666", marginBottom: 10 }}>
                   Order ID: <code style={{ background: "#f0f0f0", padding: "2px 6px", borderRadius: 4 }}>{result.order_id}</code>

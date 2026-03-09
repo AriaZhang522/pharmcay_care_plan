@@ -2,6 +2,7 @@ import json
 from datetime import date
 
 import anthropic
+import redis
 from django.conf import settings
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -84,7 +85,8 @@ def _order_to_response_dict(order: Order) -> dict:
 
 # ─────────────────────────────────────────────
 # POST /api/generate-care-plan/
-# Creates Patient/Provider/Order/CarePlan, calls LLM, status: pending → processing → completed/failed
+# Async: save CarePlan (pending) → push care_plan_id to Redis queue → return immediately.
+# Worker (not implemented yet) will pop from queue and call LLM.
 # ─────────────────────────────────────────────
 @csrf_exempt
 @require_http_methods(["POST"])
@@ -133,58 +135,26 @@ def generate_care_plan(request):
     )
     care_plan_obj = CarePlan.objects.create(order=order, status=CarePlan.Status.PENDING)
 
-    # Build dict for LLM (same shape as before)
-    order_dict = {
-        "patient_first_name": patient.first_name,
-        "patient_last_name": patient.last_name,
-        "patient_mrn": patient.mrn,
-        "primary_diagnosis": order.primary_diagnosis,
-        "additional_diagnoses": order.additional_diagnoses,
-        "medication_name": order.medication_name,
-        "medication_history": order.medication_history,
-        "referring_provider": provider.name,
-        "referring_provider_npi": provider.npi,
-        "patient_records": order.patient_records,
-    }
-
-    care_plan_obj.status = CarePlan.Status.PROCESSING
-    care_plan_obj.save(update_fields=["status", "updated_at"])
-
+    # Push care_plan_id to Redis queue (worker will pop and process later)
     try:
-        result = call_llm_for_care_plan(order_dict)
-        care_plan_obj.problem_list = result.get("problem_list", [])
-        care_plan_obj.goals = result.get("goals", [])
-        care_plan_obj.pharmacist_interventions = result.get(
-            "pharmacist_interventions", []
+        r = redis.Redis(
+            host=settings.REDIS_HOST,
+            port=settings.REDIS_PORT,
+            decode_responses=True,
         )
-        care_plan_obj.monitoring_plan = result.get("monitoring_plan", [])
-        care_plan_obj.status = CarePlan.Status.COMPLETED
-        care_plan_obj.save(
-            update_fields=[
-                "problem_list",
-                "goals",
-                "pharmacist_interventions",
-                "monitoring_plan",
-                "status",
-                "updated_at",
-            ]
-        )
-        care_plan_response = {
-            "problem_list": care_plan_obj.problem_list,
-            "goals": care_plan_obj.goals,
-            "pharmacist_interventions": care_plan_obj.pharmacist_interventions,
-            "monitoring_plan": care_plan_obj.monitoring_plan,
-        }
-        return JsonResponse(
-            {"order_id": str(order.uuid), "care_plan": care_plan_response}
-        )
-    except Exception as e:
+        r.lpush(settings.REDIS_QUEUE_KEY, str(care_plan_obj.id))
+    except redis.RedisError as e:
         care_plan_obj.status = CarePlan.Status.FAILED
-        care_plan_obj.error_message = str(e)
+        care_plan_obj.error_message = f"Queue error: {e}"
         care_plan_obj.save(update_fields=["status", "error_message", "updated_at"])
         return JsonResponse(
-            {"error": f"LLM generation failed: {str(e)}"}, status=500
+            {"error": "Failed to enqueue job"}, status=500
         )
+
+    return JsonResponse({
+        "message": "已收到",
+        "order_id": str(order.uuid),
+    })
 
 
 # ─────────────────────────────────────────────

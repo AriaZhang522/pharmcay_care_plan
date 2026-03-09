@@ -37,3 +37,8 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Anthropic API key from environment
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+
+# Redis (async queue: care_plan_id pushed here, worker consumes later)
+REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
+REDIS_QUEUE_KEY = "care_plan_queue"

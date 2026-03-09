@@ -15,6 +15,11 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
   backend:
     build: ./backend
     ports:
@@ -25,9 +30,13 @@ services:
       - POSTGRES_DB=careplan
       - POSTGRES_USER=careplan
       - POSTGRES_PASSWORD=131421Zyy!
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_started
     command: sh -c "python manage.py migrate --noinput && python manage.py runserver 0.0.0.0:8000"
 
   frontend:

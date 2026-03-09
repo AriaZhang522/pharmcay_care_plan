@@ -103,3 +103,12 @@ How to increase the speed when I/O?
 - **以后扩展**：若改成异步任务队列，worker 扫 status=pending 的订单去调 LLM，status 就是任务状态，方便重试和监控。
 
 **一句话**：内存存储时「处理中」只是当前请求的临时状态，不落库；用数据库后要把「进行到哪一步」持久化下来，所以需要 status 字段。
+
+
+## How would you scale your system?
+I would consider scaling the API layer horizontally by spinning up multiple stateless API instances behind a load balancer. The API layer handles caching, rate limiting, and request deduplication, ensuring that only essential queries hit the database.
+
+The database is the hardest component to scale, so I would protect it by keeping the pressure at the API layer first. If the database becomes a bottleneck of the system, I would consider data replication or partitioning, though I think those are more significant architectural changes.
+
+
+## Tell me about your database design

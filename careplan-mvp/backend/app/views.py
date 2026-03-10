@@ -1,57 +1,13 @@
 import json
 from datetime import date
 
-import anthropic
-import redis
-from django.conf import settings
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
+from .llm import call_llm_for_care_plan
 from .models import CarePlan, Order, Patient, ReferringProvider
-
-
-# ─────────────────────────────────────────────
-# Helper: call Claude to generate care plan (same prompt shape as before)
-# ─────────────────────────────────────────────
-def call_llm_for_care_plan(order_dict: dict) -> dict:
-    client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
-    prompt = f"""You are a clinical pharmacist at a specialty pharmacy generating a Medicare-compliant care plan.
-
-Patient Information:
-- Name: {order_dict["patient_first_name"]} {order_dict["patient_last_name"]}
-- MRN: {order_dict["patient_mrn"]}
-- Primary Diagnosis (ICD-10): {order_dict["primary_diagnosis"]}
-- Additional Diagnoses: {", ".join(order_dict["additional_diagnoses"]) if order_dict["additional_diagnoses"] else "None"}
-- Medication: {order_dict["medication_name"]}
-- Medication History: {"; ".join(order_dict["medication_history"]) if order_dict["medication_history"] else "None"}
-- Referring Provider: {order_dict["referring_provider"]} (NPI: {order_dict["referring_provider_npi"]})
-
-Patient Records / Clinical Notes:
-{order_dict["patient_records"]}
-
-Generate a structured care plan with exactly these four sections.
-Respond ONLY with a valid JSON object, no markdown, no extra text.
-
-{{
-  "problem_list": ["problem 1", "problem 2", "..."],
-  "goals": ["goal 1", "goal 2", "..."],
-  "pharmacist_interventions": ["intervention 1", "intervention 2", "..."],
-  "monitoring_plan": ["monitoring item 1", "monitoring item 2", "..."]
-}}
-"""
-    message = client.messages.create(
-        model="claude-opus-4-5",
-        max_tokens=1500,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    raw = message.content[0].text.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-        raw = raw.strip()
-    return json.loads(raw)
+from .tasks import generate_care_plan_task
 
 
 def _order_to_response_dict(order: Order) -> dict:
@@ -85,8 +41,8 @@ def _order_to_response_dict(order: Order) -> dict:
 
 # ─────────────────────────────────────────────
 # POST /api/generate-care-plan/
-# Async: save CarePlan (pending) → push care_plan_id to Redis queue → return immediately.
-# Worker (not implemented yet) will pop from queue and call LLM.
+# Async: save CarePlan (pending) → send Celery task → return immediately.
+# Celery worker runs LLM and updates DB (retry 3x with exponential backoff on failure).
 # ─────────────────────────────────────────────
 @csrf_exempt
 @require_http_methods(["POST"])
@@ -135,21 +91,7 @@ def generate_care_plan(request):
     )
     care_plan_obj = CarePlan.objects.create(order=order, status=CarePlan.Status.PENDING)
 
-    # Push care_plan_id to Redis queue (worker will pop and process later)
-    try:
-        r = redis.Redis(
-            host=settings.REDIS_HOST,
-            port=settings.REDIS_PORT,
-            decode_responses=True,
-        )
-        r.lpush(settings.REDIS_QUEUE_KEY, str(care_plan_obj.id))
-    except redis.RedisError as e:
-        care_plan_obj.status = CarePlan.Status.FAILED
-        care_plan_obj.error_message = f"Queue error: {e}"
-        care_plan_obj.save(update_fields=["status", "error_message", "updated_at"])
-        return JsonResponse(
-            {"error": "Failed to enqueue job"}, status=500
-        )
+    generate_care_plan_task.delay(care_plan_obj.id)
 
     return JsonResponse({
         "message": "已收到",

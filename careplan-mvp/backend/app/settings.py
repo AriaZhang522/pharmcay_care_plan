@@ -38,7 +38,16 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # Anthropic API key from environment
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
-# Redis (async queue: care_plan_id pushed here, worker consumes later)
+# Fake LLM: no API call, return fixed care plan (for testing Worker/Celery without cost or wait)
+USE_FAKE_LLM = os.environ.get("USE_FAKE_LLM", "").lower() in ("1", "true", "yes")
+
+# Redis (broker for Celery; previously used for hand-written BRPOP queue)
 REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
 REDIS_QUEUE_KEY = "care_plan_queue"
+
+# Celery: use Redis as broker
+CELERY_BROKER_URL = os.environ.get(
+    "CELERY_BROKER_URL",
+    f"redis://{REDIS_HOST}:{REDIS_PORT}/0",
+)

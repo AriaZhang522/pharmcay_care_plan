@@ -39,6 +39,25 @@ services:
         condition: service_started
     command: sh -c "python manage.py migrate --noinput && python manage.py runserver 0.0.0.0:8000"
 
+  celery_worker:
+    build: ./backend
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - USE_FAKE_LLM=1
+      - POSTGRES_HOST=db
+      - POSTGRES_DB=careplan
+      - POSTGRES_USER=careplan
+      - POSTGRES_PASSWORD=131421Zyy!
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - CELERY_BROKER_URL=redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    command: celery -A app.celery worker -l info
+
   frontend:
     build: ./frontend
     ports:

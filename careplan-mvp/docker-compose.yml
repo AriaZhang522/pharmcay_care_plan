@@ -43,7 +43,7 @@ services:
     build: ./backend
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - USE_FAKE_LLM=1
+      # - USE_FAKE_LLM=1   # 注释掉则用真实 Claude API；取消注释则用假 LLM（不花钱、不等待）
       - POSTGRES_HOST=db
       - POSTGRES_DB=careplan
       - POSTGRES_USER=careplan

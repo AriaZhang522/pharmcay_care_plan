@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 // ─────────────────────────────────────────────
 // Styles — inline so there's zero config needed
@@ -212,7 +212,23 @@ const S = {
   },
   orderItemHover: { background: "#f1f5f9", borderColor: "#cbd5e1" },
   orderItemMeta: { fontSize: 12, color: "#64748b", marginTop: 4 },
+  expandBtn: {
+    display: "block",
+    width: "100%",
+    padding: "10px 14px",
+    marginTop: 6,
+    textAlign: "center",
+    background: "#f1f5f9",
+    border: "1px dashed #cbd5e1",
+    borderRadius: 8,
+    fontSize: 13,
+    color: "#475569",
+    cursor: "pointer",
+    transition: "background 0.15s",
+  },
 };
+
+const INITIAL_ORDER_VISIBLE = 5;
 
 // ─────────────────────────────────────────────
 // TagInput — reusable component for list fields
@@ -350,6 +366,12 @@ export default function App() {
   const [orderList, setOrderList] = useState([]); // [{ order_id, created_at, patient_name, medication_name }]
   const [ordersLoading, setOrdersLoading] = useState(true);
   const [ordersError, setOrdersError] = useState(null);
+  const [ordersExpanded, setOrdersExpanded] = useState(false);
+  const pollingCarePlanIdRef = useRef(null);
+
+  const visibleOrderCount = ordersExpanded ? orderList.length : Math.min(INITIAL_ORDER_VISIBLE, orderList.length);
+  const visibleOrders = orderList.slice(0, visibleOrderCount);
+  const hasMoreOrders = orderList.length > INITIAL_ORDER_VISIBLE;
 
   function fetchOrders() {
     setOrdersError(null);
@@ -371,6 +393,73 @@ export default function App() {
     fetchOrders();
   }, []);
 
+  // If we have order_id but no care_plan_id (e.g. submit response missed it, or page refreshed), fetch order once to get care_plan_id so polling can start
+  useEffect(() => {
+    const orderId = result?.order_id;
+    const hasCarePlanId = result?.care_plan_id != null;
+    const hasCarePlan = result?.care_plan != null;
+    const isFailed = result?.status === "failed";
+    if (!orderId || hasCarePlanId || hasCarePlan || isFailed) return;
+
+    let cancelled = false;
+    fetch(`/api/orders/${orderId}/`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled || !data.care_plan_id) return;
+        setResult((prev) => (prev?.order_id === orderId ? { ...prev, care_plan_id: data.care_plan_id, status: prev?.status || "pending" } : prev));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [result?.order_id, result?.care_plan_id, result?.care_plan, result?.status]);
+
+  // Poll care plan status: first check after 0.8s (give worker time to start), then every 2s
+  useEffect(() => {
+    const id = result?.care_plan_id;
+    const status = result?.status;
+    if (!id || status === "completed" || status === "failed") return;
+    pollingCarePlanIdRef.current = id;
+
+    async function check() {
+      const idToUse = pollingCarePlanIdRef.current;
+      if (!idToUse) return;
+      try {
+        const res = await fetch(`/api/careplan/${idToUse}/status/`);
+        const data = await res.json();
+        if (res.status === 404 || data.error) {
+          setError(data.error || "Care plan not found");
+          return;
+        }
+        if (data.status === "completed") {
+          setResult((prev) => {
+            if (prev?.care_plan_id !== idToUse) return prev;
+            return { ...prev, care_plan: data.content, status: "completed" };
+          });
+        } else if (data.status === "failed") {
+          setResult((prev) => {
+            if (prev?.care_plan_id !== idToUse) return prev;
+            return { ...prev, status: "failed", error_message: data.error_message };
+          });
+          setError(data.error_message || "Care plan generation failed.");
+        } else {
+          setResult((prev) => {
+            if (prev?.care_plan_id !== idToUse) return prev;
+            return { ...prev, status: data.status };
+          });
+        }
+      } catch (e) {
+        setError(e.message || "Failed to check status");
+      }
+    }
+
+    const firstTimer = setTimeout(check, 800);
+    const intervalTimer = setInterval(check, 2000);
+    return () => {
+      clearTimeout(firstTimer);
+      clearInterval(intervalTimer);
+      pollingCarePlanIdRef.current = null;
+    };
+  }, [result?.care_plan_id, result?.status]);
+
   function set(field, value) {
     setForm((f) => ({ ...f, [field]: value }));
   }
@@ -383,7 +472,9 @@ export default function App() {
       if (!res.ok) throw new Error(data.error || "Failed to load order");
       setResult({
         order_id: data.order_id,
+        care_plan_id: data.care_plan_id ?? null,
         care_plan: data.care_plan,
+        status: data.care_plan ? "completed" : "pending",
         orderInfo: data,
       });
     } catch (e) {
@@ -407,7 +498,9 @@ export default function App() {
       if (!res.ok) throw new Error(data.error || "Unknown error");
       setResult({
         order_id: data.order_id,
-        care_plan: data.care_plan ?? null,
+        care_plan_id: data.care_plan_id,
+        care_plan: null,
+        status: "pending",
         orderInfo: form,
         message: data.message,
       });
@@ -463,7 +556,7 @@ export default function App() {
             {!ordersLoading && orderList.length === 0 && !ordersError && (
               <p style={{ margin: 0, fontSize: 14, color: "#94a3b8" }}>No orders yet. Create one below.</p>
             )}
-            {!ordersLoading && orderList.map((o) => (
+            {!ordersLoading && visibleOrders.map((o) => (
               <button
                 key={o.order_id}
                 type="button"
@@ -479,6 +572,17 @@ export default function App() {
                 </div>
               </button>
             ))}
+            {!ordersLoading && hasMoreOrders && (
+              <button
+                type="button"
+                style={S.expandBtn}
+                onClick={() => setOrdersExpanded((e) => !e)}
+              >
+                {ordersExpanded
+                  ? "收起"
+                  : `展开更多（共 ${orderList.length} 条）`}
+              </button>
+            )}
           </div>
 
           <p style={S.cardTitle}>New Care Plan Order</p>
@@ -636,12 +740,26 @@ export default function App() {
                   Order ID: <code style={{ background: "#f0f0f0", padding: "2px 6px", borderRadius: 4 }}>{result.order_id}</code>
                 </p>
               )}
+              {result.status === "failed" && (
+                <div style={S.error}>
+                  Care plan generation failed. {result.error_message ? result.error_message : ""}
+                </div>
+              )}
+              {result.care_plan_id && !result.care_plan && result.status !== "failed" && (
+                <div style={S.loading}>
+                  <div style={S.spinner} />
+                  <p style={{ margin: 0 }}>Generating care plan… (checking every 3s)</p>
+                  {result.status && result.status !== "pending" && (
+                    <p style={{ margin: "4px 0 0", fontSize: 12, color: "#64748b" }}>Status: {result.status}</p>
+                  )}
+                </div>
+              )}
               {result.care_plan ? (
                 <CarePlanView
                   carePlan={result.care_plan}
                   orderInfo={result.orderInfo}
                 />
-              ) : (
+              ) : !result.care_plan_id && result.status !== "failed" && (
                 <div style={S.emptyState}>
                   Care plan not available (pending, processing, or failed for this order).
                 </div>

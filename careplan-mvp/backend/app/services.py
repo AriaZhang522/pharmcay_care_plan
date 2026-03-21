@@ -1,5 +1,5 @@
 """
-Business logic: create order + care plan, enqueue task, etc.
+Business logic: create order + care plan, enqueue task, DB queries.
 No HTTP, no request/response. Reusable from views, tasks, CLI.
 """
 from datetime import date
@@ -8,16 +8,33 @@ from .models import CarePlan, Order, Patient, ReferringProvider
 from .tasks import generate_care_plan_task
 
 
+def get_all_orders_for_list():
+    """Return Order queryset for list, ordered by -created_at."""
+    return Order.objects.select_related("patient").order_by("-created_at")
+
+
+def get_care_plan_by_id(pk: int):
+    """Return CarePlan by id, or None."""
+    return CarePlan.objects.filter(id=pk).first()
+
+
+def get_order_by_uuid(uuid: str):
+    """Return Order by uuid with relations, or None."""
+    return (
+        Order.objects.filter(uuid=uuid)
+        .select_related("patient", "referring_provider", "care_plan")
+        .first()
+    )
+
+
 def create_order_and_enqueue_care_plan(body: dict) -> tuple[Order, CarePlan]:
     """
     Create Patient/Provider if needed, Order, CarePlan (pending), enqueue task.
-    Returns (order, care_plan). Raises ValueError if body invalid.
+    Assumes body is already validated by serializer.
+    Returns (order, care_plan).
     """
     mrn = (body.get("patient_mrn") or "").strip()
     npi = (body.get("referring_provider_npi") or "").strip()
-    if not mrn or not npi:
-        raise ValueError("patient_mrn and referring_provider_npi are required")
-
     dob = body.get("patient_dob")
     if dob:
         try:

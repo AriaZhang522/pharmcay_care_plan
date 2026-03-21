@@ -2,7 +2,31 @@
 Data format conversion: API request/response ↔ Python/ORM.
 Frontend JSON shape ↔ backend models/dicts. No HTTP, no business logic.
 """
+import json
+
 from .models import CarePlan, Order
+
+
+def parse_request_body(body: bytes) -> dict:
+    """Parse JSON request body to dict. Raises json.JSONDecodeError."""
+    return json.loads(body)
+
+
+def validate_generate_care_plan_body(body: dict) -> None:
+    """Validate body for generate-care-plan. Raises ValueError if invalid."""
+    mrn = (body.get("patient_mrn") or "").strip()
+    npi = (body.get("referring_provider_npi") or "").strip()
+    if not mrn or not npi:
+        raise ValueError("patient_mrn and referring_provider_npi are required")
+
+
+def build_generate_care_plan_response(order, care_plan) -> dict:
+    """Build JSON response for POST /api/generate-care-plan/."""
+    return {
+        "message": "已收到",
+        "order_id": str(order.uuid),
+        "care_plan_id": care_plan.id,
+    }
 
 
 def order_to_response_dict(order: Order) -> dict:
